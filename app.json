@@ -2,7 +2,7 @@
   "expo": {
     "name": "[DEMO] React Native with Expo and Legend State: Offline First",
     "slug": "demo-react-native-with-expo-offline-first",
-    "version": "1.0.0",
+    "version": "0.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
