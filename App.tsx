@@ -12,7 +12,8 @@ import { ObservablePersistAsyncStorage } from "@legendapp/state/persist-plugins/
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { observer } from "@legendapp/state/react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, push, remove, set } from "firebase/database"; // Import Firebase Realtime Database methods
+import { getDatabase, ref, push, remove, set, onValue } from "firebase/database";
+import { useEffect } from "react"; // Import useEffect
 import Expense from "./components/Expense";
 import { getRandomPastelColor } from "./utils/getRandomColor";
 import Header from "./components/Header";
@@ -20,8 +21,8 @@ import { randomExpenseNames } from "./constants/expenses";
 import { firebaseConfig } from "./constants/firebase";
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig); // Ensure Firebase is initialized properly
-const database = getDatabase(app); // Ensure database instance is created
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
 
 configureObservablePersistence({
   // Use AsyncStorage in React Native
@@ -36,7 +37,7 @@ configureObservablePersistence({
 });
 
 const state = observable({
-  expenses: [], // Ensure initial state is an empty array
+  expenses: [],
 });
 
 persistObservable(state, {
@@ -52,51 +53,54 @@ persistObservable(state, {
 });
 
 const App = observer(() => {
-  const expenses = state.expenses.get() || []; // Ensure expenses is always an array
+  const expenses = state.expenses.get() || [];
+
+  useEffect(() => {
+    const expensesRef = ref(database, 'expenses');
+    const unsubscribe = onValue(expensesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const expensesArray = Object.keys(data).map((key) => ({
+          id: key,
+          ...data[key],
+        }));
+        state.expenses.set(expensesArray);
+      } else {
+        state.expenses.set([]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const addExpense = () => {
-    const expensesRef = ref(database, 'expenses'); // Use the database instance
-    const newExpenseRef = push(expensesRef); // Generate a new reference with a unique key
+    const expensesRef = ref(database, 'expenses');
+    const newExpenseRef = push(expensesRef);
     const expenseIndex = expenses.length % randomExpenseNames.length;
     const newExpense = {
-      id: newExpenseRef.key, // Use the generated key as the ID
+      id: newExpenseRef.key,
       title: randomExpenseNames[expenseIndex],
       amount: Math.floor(Math.random() * 100),
       color: getRandomPastelColor(),
       date: new Date().toLocaleString(),
     };
-    newExpenseRef
-      .then(() => {
-        return set(newExpenseRef, newExpense); // Set the new expense in the database
-      })
-      .then(() => {
-        state.expenses.set((currentExpenses) => [...currentExpenses, newExpense]);
-      })
-      .catch((error) => {
-        console.error('Error adding new expense: ', error);
-      });
+    set(newExpenseRef, newExpense).catch((error) => {
+      console.error('Error adding new expense: ', error);
+    });
   };
 
   const deleteExpense = (id) => {
-    const expenseRef = ref(database, `expenses/${id}`); // Get reference to the specific expense
-    remove(expenseRef) // Remove the expense from the database
-      .then(() => {
-        state.expenses.set((currentExpenses) => currentExpenses.filter(expense => expense.id !== id));
-      })
-      .catch((error) => {
-        console.error('Error deleting expense: ', error);
-      });
+    const expenseRef = ref(database, `expenses/${id}`);
+    remove(expenseRef).catch((error) => {
+      console.error('Error deleting expense: ', error);
+    });
   };
 
   const resetExpenses = () => {
-    const expensesRef = ref(database, 'expenses'); // Get reference to the expenses list
-    set(expensesRef, null) // Clear all expenses from the database
-      .then(() => {
-        state.expenses.set([]); // Clear local state
-      })
-      .catch((error) => {
-        console.error('Error resetting expenses: ', error);
-      });
+    const expensesRef = ref(database, 'expenses');
+    set(expensesRef, null).catch((error) => {
+      console.error('Error resetting expenses: ', error);
+    });
   };
 
   return (

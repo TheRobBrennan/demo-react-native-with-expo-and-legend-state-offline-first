@@ -31,13 +31,15 @@ const Expense = ({ item, onDelete }) => {
       entering={SlideInDown}
     >
       <View
-        style={[styles.expenseColorBlock, { backgroundColor: item.color }]}
+        style={[styles.expenseColorBlock, { backgroundColor: item.color || '#ccc' }]}
       />
       <View style={styles.expenseDetails}>
-        <Text style={styles.expenseTitle}>{item.title}</Text>
-        <Text style={styles.expenseDate}>{item.date}</Text>
+        <Text style={styles.expenseTitle}>{item.title || 'Unknown'}</Text>
+        <Text style={styles.expenseDate}>{item.date || 'No Date'}</Text>
       </View>
-      <Text style={styles.expenseAmount}>${item.amount.toFixed(2)}</Text>
+      <Text style={styles.expenseAmount}>
+        ${item.amount !== undefined ? item.amount.toFixed(2) : '0.00'}
+      </Text>
       <Button title="Delete" onPress={() => onDelete(item.id)} />
     </Animated.View>
   );
