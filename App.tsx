@@ -3,6 +3,7 @@ import { StyleSheet, View, FlatList, SafeAreaView, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { observable } from "@legendapp/state";
 import { observer } from "@legendapp/state/react";
+// TODO: Web support for React Native is not included in the default package, so we need to install it separately
 // TODO: Async-storage does not work for web, so we need to use a different storage plugin for web
 // NOTE: Async-storage and MMKV (which has excellent encryption capabilities worth considering) are not supported on web, but are great for mobile apps
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -110,6 +111,9 @@ const App = observer(() => {
       }
     }
 
+    // Sort expenses in descending order of date
+    localExpenses = localExpenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
     state$.pendingSync.set(updatedPendingSync);
     state$.expenses.set(localExpenses);
     console.log('Sync complete. Remaining pending items:', updatedPendingSync.length);
@@ -142,10 +146,13 @@ const App = observer(() => {
         });
 
         // Remove expenses that no longer exist in Firebase
-        return mergedExpenses.filter(expense => 
+        const filteredExpenses = mergedExpenses.filter(expense => 
           firebaseExpenses.some(fbExpense => fbExpense.id === expense.id) || 
           state$.pendingSync.get().some(item => item.data.id === expense.id)
         );
+
+        // Sort expenses in descending order of date
+        return filteredExpenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       });
 
       saveExpensesToStorage(state$.expenses.get(), state$.pendingSync.get());
@@ -165,10 +172,10 @@ const App = observer(() => {
       title: randomExpenseNames[Math.floor(Math.random() * randomExpenseNames.length)],
       amount: Math.floor(Math.random() * 100),
       color: getRandomPastelColor(),
-      date: new Date().toLocaleString(),
+      date: new Date().toISOString(), // Store date as ISO string for easy sorting
     };
 
-    const updatedExpenses = [...state$.expenses.get(), newExpense];
+    const updatedExpenses = [...state$.expenses.get(), newExpense].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     state$.expenses.set(updatedExpenses);
 
     if (state$.isOnline.get()) {
