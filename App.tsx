@@ -2,10 +2,8 @@ import { Button, StyleSheet, View, FlatList } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { observable } from "@legendapp/state";
 import {
-  configureObservablePersistence,
-  persistObservable,
+  configureObservablePersistence
 } from "@legendapp/state/persist";
-import { ObservablePersistFirebase } from "@legendapp/state/persist-plugins/firebase";
 import { ObservablePersistAsyncStorage } from "@legendapp/state/persist-plugins/async-storage";
 // TODO: Async-storage does not work for web, so we need to use a different storage plugin for web
 // NOTE: Async-storage and MMKV (which has excellent encryption capabilities worth considering) are not supported on web, but are great for mobile apps
@@ -13,7 +11,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { observer } from "@legendapp/state/react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, push, remove, set, onValue } from "firebase/database";
-import { useEffect } from "react"; // Import useEffect
+import { useEffect } from "react";
 import Expense from "./components/Expense";
 import { getRandomPastelColor } from "./utils/getRandomColor";
 import Header from "./components/Header";
@@ -40,29 +38,17 @@ const state = observable({
   expenses: [],
 });
 
-persistObservable(state, {
-  local: "persist-demo",
-  pluginRemote: ObservablePersistFirebase,
-  remote: {
-    onSetError: (err) => console.error(err),
-    firebase: {
-      refPath: () => `/expenses/`,
-      mode: "realtime",
-    },
-  },
-});
-
 const App = observer(() => {
-  const expenses = state.expenses.get() || [];
+  const expenses = state.expenses.get();
 
   useEffect(() => {
     const expensesRef = ref(database, 'expenses');
     const unsubscribe = onValue(expensesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const expensesArray = Object.keys(data).map((key) => ({
+        const expensesArray = Object.entries(data).map(([key, value]) => ({
           id: key,
-          ...data[key],
+          ...value,
         }));
         state.expenses.set(expensesArray);
       } else {
@@ -76,9 +62,8 @@ const App = observer(() => {
   const addExpense = () => {
     const expensesRef = ref(database, 'expenses');
     const newExpenseRef = push(expensesRef);
-    const expenseIndex = expenses.length % randomExpenseNames.length;
+    const expenseIndex = Math.floor(Math.random() * randomExpenseNames.length);
     const newExpense = {
-      id: newExpenseRef.key,
       title: randomExpenseNames[expenseIndex],
       amount: Math.floor(Math.random() * 100),
       color: getRandomPastelColor(),
