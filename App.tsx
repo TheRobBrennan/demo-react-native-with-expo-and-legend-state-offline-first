@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, FlatList, SafeAreaView } from "react-native";
+import { StyleSheet, View, FlatList, SafeAreaView, Text } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { observable } from "@legendapp/state";
 import { observer } from "@legendapp/state/react";
@@ -7,7 +7,8 @@ import { observer } from "@legendapp/state/react";
 // NOTE: Async-storage and MMKV (which has excellent encryption capabilities worth considering) are not supported on web, but are great for mobile apps
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, push, remove, set, onValue } from "firebase/database";
+import { getDatabase, ref, push, remove, set, onValue, off, get } from "firebase/database";
+import NetInfo from "@react-native-community/netinfo";
 import Expense from "./components/Expense";
 import { getRandomPastelColor } from "./utils/getRandomColor";
 import Header from "./components/Header";
@@ -20,126 +21,219 @@ import DebugScreen from "./components/DebugScreen";
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
-const state = observable({
+const state$ = observable({
   expenses: [],
   isOnline: true,
+  pendingSync: [],
 });
 
 const STORAGE_KEY = '@expenses';
+const PENDING_SYNC_KEY = '@pendingSync';
 
 const App = observer(() => {
   const [showDebug, setShowDebug] = useState(false);
-  const expenses = state.expenses.get();
-  const isOnline = state.isOnline.get();
 
   const loadExpensesFromStorage = useCallback(async () => {
     try {
       const storedExpenses = await AsyncStorage.getItem(STORAGE_KEY);
+      const storedPendingSync = await AsyncStorage.getItem(PENDING_SYNC_KEY);
       if (storedExpenses !== null) {
-        state.expenses.set(JSON.parse(storedExpenses));
+        state$.expenses.set(JSON.parse(storedExpenses));
       }
+      if (storedPendingSync !== null) {
+        state$.pendingSync.set(JSON.parse(storedPendingSync));
+      }
+      console.log('Loaded from storage:', { 
+        expenses: state$.expenses.get().length, 
+        pendingSync: state$.pendingSync.get().length 
+      });
     } catch (error) {
-      console.error('Error loading expenses from storage:', error);
+      console.error('Error loading data from storage:', error);
     }
   }, []);
 
-  const saveExpensesToStorage = useCallback(async (expenses: any[]) => {
+  const saveExpensesToStorage = useCallback(async (expenses: any[], pendingSync: any[]) => {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
-      console.log('Expenses saved to AsyncStorage:', expenses);
+      await AsyncStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pendingSync));
+      console.log('Data saved to AsyncStorage:', { 
+        expenses: expenses.length, 
+        pendingSync: pendingSync.length 
+      });
     } catch (error) {
-      console.error('Error saving expenses to storage:', error);
+      console.error('Error saving data to storage:', error);
     }
   }, []);
+
+  const syncPendingChanges = useCallback(async () => {
+    console.log('Starting syncPendingChanges');
+    const pendingItems = state$.pendingSync.get();
+    console.log('Pending items to sync:', pendingItems.length);
+    
+    const expensesRef = ref(database, 'expenses');
+    
+    const updatedPendingSync = [...pendingItems];
+    
+    for (let i = 0; i < updatedPendingSync.length; i++) {
+      const item = updatedPendingSync[i];
+      try {
+        console.log('Processing item:', item);
+        if (item.action === 'add') {
+          await push(expensesRef, item.data);
+          console.log('Added item to Firebase:', item.data.id);
+          // Remove the item from local expenses to prevent duplication
+          state$.expenses.set(prevExpenses => prevExpenses.filter(e => e.id !== item.data.id));
+          updatedPendingSync.splice(i, 1);
+          i--; // Adjust index after removal
+        } else if (item.action === 'delete') {
+          const snapshot = await get(expensesRef);
+          const data = snapshot.val();
+          if (data) {
+            const firebaseKey = Object.keys(data).find(key => data[key].id === item.data.id);
+            if (firebaseKey) {
+              await remove(ref(database, `expenses/${firebaseKey}`));
+              console.log('Deleted item from Firebase:', item.data.id);
+              updatedPendingSync.splice(i, 1);
+              i--; // Adjust index after removal
+            } else {
+              console.log('Item not found in Firebase:', item.data.id);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error syncing item:', item, error);
+      }
+    }
+
+    state$.pendingSync.set(updatedPendingSync);
+    console.log('Sync complete. Remaining pending items:', updatedPendingSync.length);
+    
+    // Save the updated state to storage
+    await saveExpensesToStorage(state$.expenses.get(), updatedPendingSync);
+  }, [saveExpensesToStorage]);
 
   const setupFirebaseListener = useCallback(() => {
     const expensesRef = ref(database, 'expenses');
-    onValue(expensesRef, (snapshot) => {
+    const handleValueChange = (snapshot: any) => {
       const data = snapshot.val();
-      if (data) {
-        const expensesArray = Object.entries(data).map(([key, value]: [string, any]) => ({
-          id: value.id,
-          ...value,
-        }));
-        state.expenses.set(expensesArray);
-        saveExpensesToStorage(expensesArray);
-      } else {
-        state.expenses.set([]);
-        saveExpensesToStorage([]);
-      }
-    }, (error) => {
+      const firebaseExpenses = data ? Object.entries(data).map(([key, value]: [string, any]) => ({
+        id: value.id,
+        ...value,
+      })) : [];
+
+      // Update local state to match Firebase
+      state$.expenses.set(prevExpenses => {
+        const updatedExpenses = prevExpenses.filter(expense => 
+          firebaseExpenses.some(fbExpense => fbExpense.id === expense.id)
+        );
+        
+        firebaseExpenses.forEach(fbExpense => {
+          const index = updatedExpenses.findIndex(e => e.id === fbExpense.id);
+          if (index === -1) {
+            updatedExpenses.push(fbExpense);
+          } else {
+            updatedExpenses[index] = fbExpense;
+          }
+        });
+
+        return updatedExpenses;
+      });
+
+      saveExpensesToStorage(state$.expenses.get(), state$.pendingSync.get());
+    };
+
+    onValue(expensesRef, handleValueChange, (error) => {
       console.error('Firebase connection error:', error);
-      state.isOnline.set(false);
+      state$.isOnline.set(false);
     });
+
+    return () => off(expensesRef, 'value', handleValueChange);
   }, [saveExpensesToStorage]);
 
   const addExpense = useCallback(async () => {
     const newExpense = {
-      id: Date.now().toString(), // Local ID
+      id: Date.now().toString(),
       title: randomExpenseNames[Math.floor(Math.random() * randomExpenseNames.length)],
       amount: Math.floor(Math.random() * 100),
       color: getRandomPastelColor(),
       date: new Date().toLocaleString(),
     };
 
-    const updatedExpenses = [...expenses, newExpense];
-    state.expenses.set(updatedExpenses);
-    await saveExpensesToStorage(updatedExpenses);
+    const updatedExpenses = [...state$.expenses.get(), newExpense];
+    state$.expenses.set(updatedExpenses);
 
-    if (isOnline) {
+    if (state$.isOnline.get()) {
       const expensesRef = ref(database, 'expenses');
-      const newExpenseRef = push(expensesRef);
-      set(newExpenseRef, newExpense).catch((error) => {
-        console.error('Error adding new expense to Firebase:', error);
-      });
+      await push(expensesRef, newExpense);
+    } else {
+      const updatedPendingSync = [...state$.pendingSync.get(), { action: 'add', data: newExpense }];
+      state$.pendingSync.set(updatedPendingSync);
+      await saveExpensesToStorage(updatedExpenses, updatedPendingSync);
     }
-  }, [expenses, isOnline, saveExpensesToStorage]);
+  }, [saveExpensesToStorage]);
 
   const deleteExpense = useCallback(async (id: string) => {
-    const updatedExpenses = expenses.filter(expense => expense.id !== id);
-    state.expenses.set(updatedExpenses);
-    await saveExpensesToStorage(updatedExpenses);
+    // Immediately update local state
+    state$.expenses.set(prevExpenses => prevExpenses.filter(expense => expense.id !== id));
 
-    if (isOnline) {
+    if (state$.isOnline.get()) {
       const expensesRef = ref(database, 'expenses');
-      // First, find the Firebase key for this expense
-      onValue(expensesRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          const firebaseKey = Object.keys(data).find(key => data[key].id === id);
-          if (firebaseKey) {
-            const expenseRef = ref(database, `expenses/${firebaseKey}`);
-            remove(expenseRef).catch((error) => {
-              console.error('Error deleting expense from Firebase:', error);
-            });
-          }
+      const snapshot = await get(expensesRef);
+      const data = snapshot.val();
+      if (data) {
+        const firebaseKey = Object.keys(data).find(key => data[key].id === id);
+        if (firebaseKey) {
+          await remove(ref(database, `expenses/${firebaseKey}`));
         }
-      }, {
-        onlyOnce: true // This ensures the callback is only called once
-      });
+      }
+    } else {
+      const updatedPendingSync = [...state$.pendingSync.get(), { action: 'delete', data: { id } }];
+      state$.pendingSync.set(updatedPendingSync);
     }
-  }, [expenses, isOnline, saveExpensesToStorage]);
+    
+    // Save the updated state to storage
+    await saveExpensesToStorage(state$.expenses.get(), state$.pendingSync.get());
+  }, [saveExpensesToStorage]);
 
   const resetExpenses = useCallback(async () => {
-    state.expenses.set([]);
-    await saveExpensesToStorage([]);
+    state$.expenses.set([]);
+    state$.pendingSync.set([]);
+    await saveExpensesToStorage([], []);
 
-    if (isOnline) {
+    if (state$.isOnline.get()) {
       const expensesRef = ref(database, 'expenses');
-      set(expensesRef, null).catch((error) => {
-        console.error('Error resetting expenses in Firebase:', error);
-      });
+      await set(expensesRef, null);
     }
-  }, [isOnline, saveExpensesToStorage]);
+  }, [saveExpensesToStorage]);
 
   const toggleDebugScreen = useCallback(() => {
     setShowDebug(!showDebug);
   }, [showDebug]);
 
   useEffect(() => {
-    loadExpensesFromStorage();
-    setupFirebaseListener();
-  }, [loadExpensesFromStorage, setupFirebaseListener]);
+    loadExpensesFromStorage().then(() => {
+      if (state$.isOnline.get()) {
+        syncPendingChanges();
+      }
+    });
+    const unsubscribe = setupFirebaseListener();
+
+    // Set up network status listener
+    const unsubscribeNetInfo = NetInfo.addEventListener(networkState => {
+      const online = networkState.isConnected && networkState.isInternetReachable;
+      console.log('Network status changed. Online:', online);
+      state$.isOnline.set(online);
+      if (online) {
+        console.log('Device is online. Attempting to sync pending changes.');
+        syncPendingChanges();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeNetInfo();
+    };
+  }, [loadExpensesFromStorage, setupFirebaseListener, syncPendingChanges]);
 
   if (showDebug) {
     return <DebugScreen onClose={toggleDebugScreen} />;
@@ -150,15 +244,17 @@ const App = observer(() => {
       <StatusBar style="auto" />
       <Header />
       <FlatList
-        data={expenses}
+        data={state$.expenses.get()}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => <Expense item={item} onDelete={deleteExpense} />}
+        ListEmptyComponent={<Text style={styles.emptyText}>No expenses yet. Add some!</Text>}
       />
       <View style={styles.buttonContainer}>
         <CustomButton title="Add Expense" onPress={addExpense} />
         <CustomButton title="Reset" onPress={resetExpenses} style={styles.resetButton} />
       </View>
       <CustomButton title="Debug AsyncStorage" onPress={toggleDebugScreen} style={styles.debugButton} />
+      <CustomButton title="Force Sync" onPress={syncPendingChanges} style={styles.syncButton} />
     </SafeAreaView>
   );
 });
@@ -174,12 +270,23 @@ const styles = StyleSheet.create({
     margin: 20,
   },
   resetButton: {
-    backgroundColor: '#FF3B30', // iOS red color for the reset button
+    backgroundColor: '#FF3B30',
   },
   debugButton: {
     backgroundColor: '#9C27B0',
     marginHorizontal: 20,
+    marginBottom: 10,
+  },
+  syncButton: {
+    backgroundColor: '#007AFF',
+    marginHorizontal: 20,
     marginBottom: 20,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 20,
+    fontSize: 16,
+    color: '#888',
   },
 });
 
