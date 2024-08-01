@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "local-first-finance",
-    "slug": "local-first-finance",
+    "name": "[DEMO] React Native with Expo and Legend State: Offline First",
+    "slug": "demo-react-native-with-expo-offline-first",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
