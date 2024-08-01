@@ -2,6 +2,14 @@
 
 This project was initially cloned off the [repo](https://github.com/CallumHemsley/Offline-First-Expo-Demo-with-Legend-State) associated with the blog post from [How to build an offline-first app using Expo & Legend State](https://expo.dev/blog/offline-first-apps-with-expo-and-legend-state) - originally published on February 27th, 2024.
 
+Here's a look at the React Native web, iOS, and Android apps in action.
+
+**DEMO: React Native web, iOS simulator, and Android emulator**
+![DEMO: React Native web, iOS simulator, and Android emulator](./documentation/assets/demo-react-native-web-ios-android.gif)
+
+**DEMO: iPhone 14 Pro running the React Native iOS code**
+![DEMO: iPhone 14 Pro running the React Native iOS code](./documentation/assets/demo-ios-simulator.gif)
+
 ## Getting Started
 
 Once you have cloned the repo to your development machine, all you need to do is install the dependencies and start Expo:
