@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import CustomButton from './CustomButton';
+import { format } from 'date-fns';
+
 
 interface ExpenseProps {
   item: any;
@@ -8,12 +10,14 @@ interface ExpenseProps {
 }
 
 const Expense = ({ item, onDelete }: ExpenseProps) => {
+  const formattedDate = format(new Date(item.date), 'PPpp'); // Format date in a human-friendly way
+
   return (
     <View style={[styles.container, { backgroundColor: item.color }]}>
       <View style={styles.infoContainer}>
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.amount}>${item.amount}</Text>
-        <Text style={styles.date}>{item.date}</Text>
+        <Text style={styles.date}>{formattedDate}</Text>
       </View>
       <CustomButton 
         title="Delete" 
