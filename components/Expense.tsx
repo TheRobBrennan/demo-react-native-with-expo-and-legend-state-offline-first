@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, Button } from "react-native";
 import Animated, {
   SlideInDown,
   useAnimatedStyle,
@@ -7,7 +7,7 @@ import Animated, {
 } from "react-native-reanimated";
 import React, { useEffect } from "react";
 
-const Expense = ({ item }) => {
+const Expense = ({ item, onDelete }) => {
   const opacity = useSharedValue(1);
 
   // Set up the flashing effect on render
@@ -38,6 +38,7 @@ const Expense = ({ item }) => {
         <Text style={styles.expenseDate}>{item.date}</Text>
       </View>
       <Text style={styles.expenseAmount}>${item.amount.toFixed(2)}</Text>
+      <Button title="Delete" onPress={() => onDelete(item.id)} />
     </Animated.View>
   );
 };

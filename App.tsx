@@ -12,6 +12,7 @@ import { ObservablePersistAsyncStorage } from "@legendapp/state/persist-plugins/
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { observer } from "@legendapp/state/react";
 import { initializeApp } from "firebase/app";
+import { getDatabase, ref, push, remove, set } from "firebase/database"; // Import Firebase Realtime Database methods
 import Expense from "./components/Expense";
 import { getRandomPastelColor } from "./utils/getRandomColor";
 import Header from "./components/Header";
@@ -19,7 +20,8 @@ import { randomExpenseNames } from "./constants/expenses";
 import { firebaseConfig } from "./constants/firebase";
 
 // Initialize Firebase
-initializeApp(firebaseConfig);
+const app = initializeApp(firebaseConfig); // Ensure Firebase is initialized properly
+const database = getDatabase(app); // Ensure database instance is created
 
 configureObservablePersistence({
   // Use AsyncStorage in React Native
@@ -34,29 +36,14 @@ configureObservablePersistence({
 });
 
 const state = observable({
-  expenses: [
-    {
-      id: "1",
-      title: "Groceries",
-      amount: 50.0,
-      color: getRandomPastelColor(),
-      date: new Date().toLocaleString(),
-    },
-    {
-      id: "2",
-      title: "Electric Bill",
-      amount: 75.0,
-      color: getRandomPastelColor(),
-      date: new Date().toLocaleString(),
-    },
-  ],
+  expenses: [], // Ensure initial state is an empty array
 });
 
 persistObservable(state, {
   local: "persist-demo",
   pluginRemote: ObservablePersistFirebase,
   remote: {
-    onSetError: (err: unknown) => console.error(err),
+    onSetError: (err) => console.error(err),
     firebase: {
       refPath: () => `/expenses/`,
       mode: "realtime",
@@ -65,18 +52,51 @@ persistObservable(state, {
 });
 
 const App = observer(() => {
-  const expenses = state.expenses.get();
+  const expenses = state.expenses.get() || []; // Ensure expenses is always an array
 
   const addExpense = () => {
+    const expensesRef = ref(database, 'expenses'); // Use the database instance
+    const newExpenseRef = push(expensesRef); // Generate a new reference with a unique key
     const expenseIndex = expenses.length % randomExpenseNames.length;
     const newExpense = {
-      id: Math.random().toString(),
+      id: newExpenseRef.key, // Use the generated key as the ID
       title: randomExpenseNames[expenseIndex],
       amount: Math.floor(Math.random() * 100),
       color: getRandomPastelColor(),
       date: new Date().toLocaleString(),
     };
-    state.expenses.set((currentExpenses) => [...currentExpenses, newExpense]);
+    newExpenseRef
+      .then(() => {
+        return set(newExpenseRef, newExpense); // Set the new expense in the database
+      })
+      .then(() => {
+        state.expenses.set((currentExpenses) => [...currentExpenses, newExpense]);
+      })
+      .catch((error) => {
+        console.error('Error adding new expense: ', error);
+      });
+  };
+
+  const deleteExpense = (id) => {
+    const expenseRef = ref(database, `expenses/${id}`); // Get reference to the specific expense
+    remove(expenseRef) // Remove the expense from the database
+      .then(() => {
+        state.expenses.set((currentExpenses) => currentExpenses.filter(expense => expense.id !== id));
+      })
+      .catch((error) => {
+        console.error('Error deleting expense: ', error);
+      });
+  };
+
+  const resetExpenses = () => {
+    const expensesRef = ref(database, 'expenses'); // Get reference to the expenses list
+    set(expensesRef, null) // Clear all expenses from the database
+      .then(() => {
+        state.expenses.set([]); // Clear local state
+      })
+      .catch((error) => {
+        console.error('Error resetting expenses: ', error);
+      });
   };
 
   return (
@@ -86,9 +106,12 @@ const App = observer(() => {
       <FlatList
         data={expenses}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <Expense item={item} />}
+        renderItem={({ item }) => <Expense item={item} onDelete={deleteExpense} />}
       />
-      <Button title="Add Expense" onPress={addExpense} />
+      <View style={styles.buttonContainer}>
+        <Button title="Add Expense" onPress={addExpense} />
+        <Button title="Reset" onPress={resetExpenses} />
+      </View>
     </View>
   );
 });
@@ -98,6 +121,11 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 50,
     paddingBottom: 50,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    margin: 20,
   },
 });
 
