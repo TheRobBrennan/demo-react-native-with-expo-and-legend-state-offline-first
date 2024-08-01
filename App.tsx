@@ -73,16 +73,19 @@ const App = observer(() => {
     const expensesRef = ref(database, 'expenses');
     
     const updatedPendingSync = [...pendingItems];
+    let localExpenses = state$.expenses.get();
     
     for (let i = 0; i < updatedPendingSync.length; i++) {
       const item = updatedPendingSync[i];
       try {
         console.log('Processing item:', item);
         if (item.action === 'add') {
-          await push(expensesRef, item.data);
+          const newRef = await push(expensesRef, item.data);
           console.log('Added item to Firebase:', item.data.id);
-          // Remove the item from local expenses to prevent duplication
-          state$.expenses.set(prevExpenses => prevExpenses.filter(e => e.id !== item.data.id));
+          // Update the local expense with the Firebase key
+          localExpenses = localExpenses.map(e => 
+            e.id === item.data.id ? { ...e, firebaseKey: newRef.key } : e
+          );
           updatedPendingSync.splice(i, 1);
           i--; // Adjust index after removal
         } else if (item.action === 'delete') {
@@ -93,6 +96,8 @@ const App = observer(() => {
             if (firebaseKey) {
               await remove(ref(database, `expenses/${firebaseKey}`));
               console.log('Deleted item from Firebase:', item.data.id);
+              // Remove from local expenses if it still exists
+              localExpenses = localExpenses.filter(e => e.id !== item.data.id);
               updatedPendingSync.splice(i, 1);
               i--; // Adjust index after removal
             } else {
@@ -106,10 +111,11 @@ const App = observer(() => {
     }
 
     state$.pendingSync.set(updatedPendingSync);
+    state$.expenses.set(localExpenses);
     console.log('Sync complete. Remaining pending items:', updatedPendingSync.length);
     
     // Save the updated state to storage
-    await saveExpensesToStorage(state$.expenses.get(), updatedPendingSync);
+    await saveExpensesToStorage(localExpenses, updatedPendingSync);
   }, [saveExpensesToStorage]);
 
   const setupFirebaseListener = useCallback(() => {
@@ -118,25 +124,28 @@ const App = observer(() => {
       const data = snapshot.val();
       const firebaseExpenses = data ? Object.entries(data).map(([key, value]: [string, any]) => ({
         id: value.id,
+        firebaseKey: key,
         ...value,
       })) : [];
 
-      // Update local state to match Firebase
+      // Merge Firebase expenses with local expenses
       state$.expenses.set(prevExpenses => {
-        const updatedExpenses = prevExpenses.filter(expense => 
-          firebaseExpenses.some(fbExpense => fbExpense.id === expense.id)
-        );
+        const mergedExpenses = [...prevExpenses];
         
         firebaseExpenses.forEach(fbExpense => {
-          const index = updatedExpenses.findIndex(e => e.id === fbExpense.id);
-          if (index === -1) {
-            updatedExpenses.push(fbExpense);
+          const localIndex = mergedExpenses.findIndex(e => e.id === fbExpense.id);
+          if (localIndex === -1) {
+            mergedExpenses.push(fbExpense);
           } else {
-            updatedExpenses[index] = fbExpense;
+            mergedExpenses[localIndex] = { ...mergedExpenses[localIndex], ...fbExpense };
           }
         });
 
-        return updatedExpenses;
+        // Remove expenses that no longer exist in Firebase
+        return mergedExpenses.filter(expense => 
+          firebaseExpenses.some(fbExpense => fbExpense.id === expense.id) || 
+          state$.pendingSync.get().some(item => item.data.id === expense.id)
+        );
       });
 
       saveExpensesToStorage(state$.expenses.get(), state$.pendingSync.get());
