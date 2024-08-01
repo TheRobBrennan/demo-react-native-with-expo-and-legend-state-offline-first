@@ -73,15 +73,35 @@ Take a look at the example environment variables we need to declare in [.env.sam
 
 Let's go to the Firebase console at [https://console.firebase.google.com](https://console.firebase.google.com) and create a new project.
 
+##### Firebase: Create a new project
+
+![SCREENSHOT: Welcome to Firebase](./documentation/assets/firebase-project-setup-01.png)
+
 I'm going to create a new Firebase project with the project name `legend-state-expo-rn-demo`.
+
+![SCREENSHOT: Create a project](./documentation/assets/firebase-project-setup-02.png)
 
 As part of the project setup, we'll add Google Analytics because...well, why not? It's free and perhaps there might be some more we can explore with that later on.
 
+![SCREENSHOT: Google Analytics for your Firebase project](./documentation/assets/firebase-project-setup-03.png)
+
+![SCREENSHOT: Configure Google Analytics](./documentation/assets/firebase-project-setup-04.png)
+
+![SCREENSHOT: Your Firebase project is ready](./documentation/assets/firebase-project-setup-05.png)
+
 Once you've clicked `Register app` you will be presented with most of the details you will need for your `.env` file.
+
+##### Firebase: Create a new Realtime Database
 
 Once you've created the project, you'll want to create the Firebase Realtime Database that you will define in your `.env` file for `EXPO_PUBLIC_FIREBASE_DATABASE_URL`.
 
-For this demo and naïve implementation, let's allow anyone with access to the application to read and write to the expenses collection:
+![SCREENSHOT: Create a new Realtime Database](./documentation/assets/firebase-realtime-database-setup-01.png)
+
+![SCREENSHOT: Choose your Realtime Database location](./documentation/assets/firebase-realtime-database-setup-02.png)
+
+![SCREENSHOT: Rules for your Realtime Database](./documentation/assets/firebase-realtime-database-setup-03.png)
+
+For this demo and naïve implementation, let's allow anyone with access to the application to read and write to a shared expenses collection:
 
 ```json
 {
@@ -97,3 +117,5 @@ For this demo and naïve implementation, let's allow anyone with access to the a
   }
 }
 ```
+
+![SCREENSHOT: Find the Database URL for your .env file](./documentation/assets/firebase-realtime-database-setup-04.png)
