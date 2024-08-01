@@ -7,6 +7,8 @@ import {
 } from "@legendapp/state/persist";
 import { ObservablePersistFirebase } from "@legendapp/state/persist-plugins/firebase";
 import { ObservablePersistAsyncStorage } from "@legendapp/state/persist-plugins/async-storage";
+// TODO: Async-storage does not work for web, so we need to use a different storage plugin for web
+// NOTE: Async-storage and MMKV (which has excellent encryption capabilities worth considering) are not supported on web, but are great for mobile apps
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { observer } from "@legendapp/state/react";
 import { initializeApp } from "firebase/app";
@@ -25,6 +27,7 @@ configureObservablePersistence({
   localOptions: {
     asyncStorage: {
       // The AsyncStorage plugin needs to be given the implementation of AsyncStorage
+      // TODO: Create a method to return the appropriate AsyncStorage implementation based on the platform - https://chatgpt.com/c/668dd801-a01d-431f-8636-7938c9d3f0f7
       AsyncStorage,
     },
   },
