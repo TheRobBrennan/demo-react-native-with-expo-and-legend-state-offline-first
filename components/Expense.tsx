@@ -2,7 +2,12 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import CustomButton from './CustomButton';
 
-const Expense = ({ item, onDelete }) => {
+interface ExpenseProps {
+  item: any;
+  onDelete: (id: string) => void;
+}
+
+const Expense = ({ item, onDelete }: ExpenseProps) => {
   return (
     <View style={[styles.container, { backgroundColor: item.color }]}>
       <View style={styles.infoContainer}>

@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, View, FlatList } from "react-native";
+import React, { useState, useEffect, useCallback } from 'react';
+import { StyleSheet, View, FlatList, SafeAreaView } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { observable } from "@legendapp/state";
 import { observer } from "@legendapp/state/react";
@@ -14,6 +14,7 @@ import Header from "./components/Header";
 import { randomExpenseNames } from "./constants/expenses";
 import { firebaseConfig } from "./constants/firebase";
 import CustomButton from "./components/CustomButton";
+import DebugScreen from "./components/DebugScreen";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -27,15 +28,11 @@ const state = observable({
 const STORAGE_KEY = '@expenses';
 
 const App = observer(() => {
+  const [showDebug, setShowDebug] = useState(false);
   const expenses = state.expenses.get();
   const isOnline = state.isOnline.get();
 
-  useEffect(() => {
-    loadExpensesFromStorage();
-    setupFirebaseListener();
-  }, []);
-
-  const loadExpensesFromStorage = async () => {
+  const loadExpensesFromStorage = useCallback(async () => {
     try {
       const storedExpenses = await AsyncStorage.getItem(STORAGE_KEY);
       if (storedExpenses !== null) {
@@ -44,23 +41,24 @@ const App = observer(() => {
     } catch (error) {
       console.error('Error loading expenses from storage:', error);
     }
-  };
+  }, []);
 
-  const saveExpensesToStorage = async (expenses) => {
+  const saveExpensesToStorage = useCallback(async (expenses: any[]) => {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+      console.log('Expenses saved to AsyncStorage:', expenses);
     } catch (error) {
       console.error('Error saving expenses to storage:', error);
     }
-  };
+  }, []);
 
-  const setupFirebaseListener = () => {
+  const setupFirebaseListener = useCallback(() => {
     const expensesRef = ref(database, 'expenses');
     onValue(expensesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const expensesArray = Object.entries(data).map(([key, value]) => ({
-          id: key,
+        const expensesArray = Object.entries(data).map(([key, value]: [string, any]) => ({
+          id: value.id,
           ...value,
         }));
         state.expenses.set(expensesArray);
@@ -73,11 +71,11 @@ const App = observer(() => {
       console.error('Firebase connection error:', error);
       state.isOnline.set(false);
     });
-  };
+  }, [saveExpensesToStorage]);
 
-  const addExpense = async () => {
+  const addExpense = useCallback(async () => {
     const newExpense = {
-      id: Date.now().toString(),
+      id: Date.now().toString(), // Local ID
       title: randomExpenseNames[Math.floor(Math.random() * randomExpenseNames.length)],
       amount: Math.floor(Math.random() * 100),
       color: getRandomPastelColor(),
@@ -95,22 +93,34 @@ const App = observer(() => {
         console.error('Error adding new expense to Firebase:', error);
       });
     }
-  };
+  }, [expenses, isOnline, saveExpensesToStorage]);
 
-  const deleteExpense = async (id) => {
+  const deleteExpense = useCallback(async (id: string) => {
     const updatedExpenses = expenses.filter(expense => expense.id !== id);
     state.expenses.set(updatedExpenses);
     await saveExpensesToStorage(updatedExpenses);
 
     if (isOnline) {
-      const expenseRef = ref(database, `expenses/${id}`);
-      remove(expenseRef).catch((error) => {
-        console.error('Error deleting expense from Firebase:', error);
+      const expensesRef = ref(database, 'expenses');
+      // First, find the Firebase key for this expense
+      onValue(expensesRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const firebaseKey = Object.keys(data).find(key => data[key].id === id);
+          if (firebaseKey) {
+            const expenseRef = ref(database, `expenses/${firebaseKey}`);
+            remove(expenseRef).catch((error) => {
+              console.error('Error deleting expense from Firebase:', error);
+            });
+          }
+        }
+      }, {
+        onlyOnce: true // This ensures the callback is only called once
       });
     }
-  };
+  }, [expenses, isOnline, saveExpensesToStorage]);
 
-  const resetExpenses = async () => {
+  const resetExpenses = useCallback(async () => {
     state.expenses.set([]);
     await saveExpensesToStorage([]);
 
@@ -120,10 +130,23 @@ const App = observer(() => {
         console.error('Error resetting expenses in Firebase:', error);
       });
     }
-  };
+  }, [isOnline, saveExpensesToStorage]);
+
+  const toggleDebugScreen = useCallback(() => {
+    setShowDebug(!showDebug);
+  }, [showDebug]);
+
+  useEffect(() => {
+    loadExpensesFromStorage();
+    setupFirebaseListener();
+  }, [loadExpensesFromStorage, setupFirebaseListener]);
+
+  if (showDebug) {
+    return <DebugScreen onClose={toggleDebugScreen} />;
+  }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <StatusBar style="auto" />
       <Header />
       <FlatList
@@ -135,15 +158,15 @@ const App = observer(() => {
         <CustomButton title="Add Expense" onPress={addExpense} />
         <CustomButton title="Reset" onPress={resetExpenses} style={styles.resetButton} />
       </View>
-    </View>
+      <CustomButton title="Debug AsyncStorage" onPress={toggleDebugScreen} style={styles.debugButton} />
+    </SafeAreaView>
   );
 });
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 50,
-    paddingBottom: 20,
+    backgroundColor: '#f5f5f5',
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -152,6 +175,11 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     backgroundColor: '#FF3B30', // iOS red color for the reset button
+  },
+  debugButton: {
+    backgroundColor: '#9C27B0',
+    marginHorizontal: 20,
+    marginBottom: 20,
   },
 });
 
